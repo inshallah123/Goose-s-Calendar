@@ -752,40 +752,41 @@ def main(page: ft.Page) -> None:
         page.update()
 
     def create_event_card(event: Dict, index: int) -> ft.Container:
-        """创建事件卡片：美观地展示事件信息"""
+        """创建事件卡片：美观地展示事件信息（已修正类别显示问题）"""
         category_colors = {
             "工作": colors["event_work"],
             "日常": colors["event_daily"],
             "个人生活": colors["event_personal"],
             "自定义": colors["event_custom"],
+            # 以下颜色保留，以备将来可能的设计
             "周期性": colors["event_periodic"],
             "自定义日期": colors["custom_dates"],
             "自定义周期": colors["custom_period"]
         }
 
-        # 为周期性事件添加特殊标识
+        # --- 核心修改部分 ---
+
+        # 1. 标题处理：为周期性事件的标题添加后缀
         title_text = event["title"]
         if event.get("is_periodic", False):
             period_info = event.get("period_info", {})
             period_type = period_info.get("type", "")
 
+            # 根据不同周期类型生成后缀
             if period_type == "自定义周期":
                 interval = period_info.get("interval", 1)
                 unit = period_info.get("unit", "")
                 title_text += f" (每{interval}{unit})"
             elif period_type == "自定义日期":
                 title_text += " (自定义日期)"
-            else:
+            elif period_type:  # 处理 "每天", "每周", "每月", "每季", "每年"
                 title_text += f" ({period_type})"
 
-        # 确定显示的类别
+        # 2. 类别确定：直接使用事件本身的类别，不再覆盖
+        # 这确保了无论事件是否为周期性，其颜色和标签都反映原始分类
         display_category = event["category"]
-        if event.get("is_periodic", False):
-            period_type = event.get("period_info", {}).get("type", "")
-            if period_type in ["自定义日期", "自定义周期"]:
-                display_category = period_type
-            else:
-                display_category = "周期性"
+
+        # --- 修改结束 ---
 
         return ft.Container(
             content=ft.Column(
@@ -794,11 +795,12 @@ def main(page: ft.Page) -> None:
                         controls=[
                             ft.Container(
                                 content=ft.Text(
-                                    display_category,
+                                    display_category,  # 使用正确的类别
                                     size=10,
                                     color="white",
                                     weight=ft.FontWeight.BOLD
                                 ),
+                                # 从字典中获取对应类别的颜色
                                 bgcolor=category_colors.get(display_category, colors["text_secondary"]),
                                 padding=ft.Padding(left=8, right=8, top=2, bottom=2),
                                 border_radius=10
@@ -817,7 +819,7 @@ def main(page: ft.Page) -> None:
                         alignment=ft.MainAxisAlignment.SPACE_BETWEEN
                     ),
                     ft.Text(
-                        title_text,
+                        title_text,  # 使用处理过的标题
                         size=14,
                         color=colors["text_primary"],
                         weight=ft.FontWeight.W_500
