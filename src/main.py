@@ -440,7 +440,7 @@ def main(page: ft.Page) -> None:
 
     def change_month(delta: int) -> None:
         """切换月份：优雅地翻页"""
-        nonlocal selected_year, selected_month
+        nonlocal selected_year, selected_month, selected_day
 
         selected_month += delta
         if selected_month > 12:
@@ -449,6 +449,8 @@ def main(page: ft.Page) -> None:
         elif selected_month < 1:
             selected_month = 12
             selected_year -= 1
+
+        selected_day = None
 
         update_calendar()
         update_event_panel()

@@ -1,33 +1,29 @@
+# pyproject.toml 文件
+
 [project]
-name = "calender"
-version = "0.1.0"
-description = ""
+name = "Goose's Calendar"
+version = "0.0.0"
+description = "一款精美且功能丰富的桌面日历应用。专供GOOSE使用。"
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.9"
 authors = [
-    { name = "Flet developer", email = "you@example.com" }
+    { name = "yyh", email = "924483141@qq.com" }
 ]
+
+# --- 重点：在这里列出您项目用到的所有第三方库 ---
 dependencies = [
-  "flet==0.70.0.dev5103"
+  "flet",
+  "lunarcalendar",
+  "chinese_calendar"
 ]
 
+# --- Flet 专属的打包配置 ---
 [tool.flet]
-# Docs: https://flet.dev/docs/publish
-org = "com.mycompany"
-product = "calender"
-company = "Flet"
-copyright = "Copyright (C) 2025 by Flet"
+# 这些信息会显示在最终生成 .exe 文件的属性里
+product = "鹅娃子日历"
+company = "yyh"
+copyright = "Copyright (C) 2025 by yyh"
 
+# 告诉 Flet 去哪里找你的 main.py 文件
 [tool.flet.app]
 path = "src"
-
-[tool.uv]
-dev-dependencies = [
-    "flet[all]==0.70.0.dev5103",
-]
-
-[tool.poetry]
-package-mode = false
-
-[tool.poetry.group.dev.dependencies]
-flet = {extras = ["all"], version = "0.70.0.dev5103"}
