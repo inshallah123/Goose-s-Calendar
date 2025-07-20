@@ -4,6 +4,7 @@ from typing import List, Dict, Optional, Tuple
 import calendar
 import json
 import os
+import sys
 from lunarcalendar import Converter, Solar
 from lunarcalendar.festival import festivals
 from lunarcalendar.solarterm import solarterms
@@ -11,6 +12,37 @@ import chinese_calendar as cn_cal
 LUNAR_AVAILABLE = True
 HOLIDAY_AVAILABLE = True
 
+
+def get_user_data_dir() -> str:
+    """
+    获取用户数据目录，确保程序有权限写入。
+    此版本经过修正，确保在所有情况下都返回一个有效的字符串路径。
+    """
+    # 优先处理 Windows 平台
+    if sys.platform == "win32":
+        path = os.getenv("APPDATA")
+        # 如果成功获取 APPDATA 路径，则使用它
+        if path:
+            return os.path.join(path, "GooseCalendar")
+        # 如果 APPDATA 不存在（极端情况），则 fall back 到用户主目录
+        # 此处不再有 return，会自然地执行到函数末尾的通用后备方案
+
+    # 处理 macOS 平台
+    elif sys.platform == "darwin":
+        return os.path.join(os.path.expanduser("~/Library/Application Support"), "GooseCalendar")
+
+    # 通用后备方案：适用于 Linux、其他操作系统，或出现问题的 Windows
+    # 在用户主目录下创建一个隐藏文件夹来存储数据，这是一个非常标准的做法。
+    return os.path.join(os.path.expanduser("~"), ".GooseCalendar")
+
+application_path = get_user_data_dir()
+
+# 确保这个目录存在
+if not os.path.exists(application_path):
+    os.makedirs(application_path)
+
+# 现在 events_file 的路径是安全的，例如 C:\\Users\\yyh\\AppData\\Roaming\\GooseCalendar\\calendar_events.json
+events_file = os.path.join(application_path, "calendar_events.json")
 
 
 
@@ -57,7 +89,6 @@ def main(page: ft.Page) -> None:
         if decade == 0: return f"初{chinese_digits[unit - 1]}"
         return f"{chinese_numbers[decade]}{chinese_digits[unit - 1] if unit > 0 else '十'}"
 
-    # FIX 1: Correctly uses the global 'festivals' list as per the documentation
     def get_lunar_info(year: int, month: int, day: int) -> Tuple[str, str, str, str]:
         """
         获取农历信息：返回 (农历月份, 主要显示文本, 找到的节气名称, 原始农历日名称)
@@ -109,7 +140,6 @@ def main(page: ft.Page) -> None:
             return "", "", "", ""
 
 
-    # FIX 2: Handles the date range limitation of the 'chinese_calendar' library
     def get_holiday_info(year: int, month: int, day: int) -> Tuple[bool, bool, str]:
         """
         获取节假日信息：返回 (是否休息日, 是否调休上班, 节日名称)
@@ -124,7 +154,6 @@ def main(page: ft.Page) -> None:
             return False, False, ""
 
         try:
-            # --- 原始计算逻辑保持不变 ---
             is_holiday = cn_cal.is_holiday(check_date)
             is_workday = cn_cal.is_workday(check_date)
             holiday_detail = cn_cal.get_holiday_detail(check_date)
@@ -143,33 +172,48 @@ def main(page: ft.Page) -> None:
             print(f"Unexpected error in get_holiday_info for {year}-{month}-{day}: {e}")
             return False, False, ""
 
-    # 事件数据管理，如同贴心的秘书管理你的时间
-    events_file = "calendar_events.json"  # 事件存储文件
+    # 事件数据管理
     events_data: Dict[str, List[Dict]] = {}  # 事件数据字典
-    periodic_events_rules: List[Dict] = []  # 新增：专门存储周期性事件规则
+    periodic_events_rules: List[Dict] = []  # 专门存储周期性事件规则
+
+    # 修改后的 load_events 函数
 
     def load_events() -> None:
-        """加载事件数据：从文件中恢复记录。兼容新旧数据结构。"""
+        """
+        加载事件数据：从文件中恢复记录。
+        如果文件不存在，则自动创建一个空的配置文件。
+        """
         nonlocal events_data, periodic_events_rules
-        try:
-            if os.path.exists(events_file):
+
+        # 初始化内存中的变量，以防万一
+        events_data = {}
+        periodic_events_rules = []
+
+        # 检查文件是否存在
+        if os.path.exists(events_file):
+            try:
+                # 如果文件存在，则尝试读取它
                 with open(events_file, 'r', encoding='utf-8') as f:
                     data = json.load(f)
-                    # 兼容新结构 (字典包含两部分)
+                    # 兼容新结构
                     if isinstance(data, dict) and "single_events" in data:
                         events_data = data.get("single_events", {})
                         periodic_events_rules = data.get("periodic_rules", [])
-                    # 兼容旧结构 (只有普通事件)
+                    # 兼容旧结构
                     else:
                         events_data = data
-                        periodic_events_rules = []
-            else:
-                events_data = {}
-                periodic_events_rules = []
-        except Exception as e:
-            print(f"加载事件时出错: {e}")
-            events_data = {}
-            periodic_events_rules = []
+            except (json.JSONDecodeError, IOError) as e:
+                # 如果文件损坏或无法读取，打印错误并使用空数据
+                print(f"读取事件文件时出错: {e}. 将使用空数据。")
+        else:
+            # --- 核心改动在这里 ---
+            # 如果文件不存在，不仅在内存中初始化，还要创建一个空的物理文件
+            print("事件文件不存在，将创建一个新的。")
+            try:
+                # 直接调用 save_events() 函数，它会用当前的空数据创建一个新文件
+                save_events()
+            except IOError as e:
+                print(f"创建新的事件文件时失败: {e}")
 
     def save_events() -> None:
         """保存事件数据：将普通事件和周期性规则分别保存到文件。"""
@@ -197,7 +241,7 @@ def main(page: ft.Page) -> None:
         return f"{year}-{month:02d}-{day:02d}"
 
     def check_if_date_matches_rule(target_date: date, rule: Dict) -> bool:
-        """核心辅助函数：检查给定日期是否匹配周期性规则。"""
+        """辅助函数：检查给定日期是否匹配周期性规则。"""
         start_date_str = rule.get("original_date")
         if not start_date_str: return False
 
@@ -225,9 +269,26 @@ def main(page: ft.Page) -> None:
             # 特殊情况：开始日在某月不存在（如31日），目标日是该月最后一天
             try:
                 target_date.replace(day=start_date.day)
-                return False # 如果能替换，说明目标日不是该月最后一天，不匹配
-            except ValueError: # 无法替换，说明目标日是该月最后一天
+                return False  # 如果能替换，说明目标日不是该月最后一天，不匹配
+            except ValueError:  # 无法替换，说明目标日是该月最后一天
                 return target_date.day == calendar.monthrange(target_date.year, target_date.month)[1]
+
+        # --- 新增的季度判断逻辑 ---
+        elif period_type == "每季":
+            # 首先，计算月份差值是否为3的倍数
+            month_diff = (target_date.year - start_date.year) * 12 + (target_date.month - start_date.month)
+            if month_diff >= 0 and month_diff % 3 == 0:
+                # 月份正确后，再检查日期
+                # 简单情况：日期相同
+                if target_date.day == start_date.day:
+                    return True
+                # 特殊情况：处理月末日期（例如，从1月31日开始，季度事件应落在4月30日）
+                last_day_of_target_month = calendar.monthrange(target_date.year, target_date.month)[1]
+                if start_date.day > last_day_of_target_month and target_date.day == last_day_of_target_month:
+                    return True
+            return False
+        # --- 结束新增逻辑 ---
+
         elif period_type == "每年":
             if target_date.month == start_date.month and target_date.day == start_date.day:
                 return True
@@ -253,14 +314,14 @@ def main(page: ft.Page) -> None:
         target_date = date(year, month, day)
 
         # 1. 获取当天的普通事件
-        todays_events = events_data.get(date_key, []).copy()
+        events_for_date = events_data.get(date_key, []).copy()
 
         # 2. 动态检查并添加符合规则的周期性事件
         for rule in periodic_events_rules:
             if check_if_date_matches_rule(target_date, rule):
-                todays_events.append(rule)
+                events_for_date.append(rule)
 
-        return todays_events
+        return events_for_date
 
     def add_event(year: int, month: int, day: int, title: str, category: str, description: str = "",
                   is_periodic: bool = False, period_info: Dict = None) -> None:
@@ -775,176 +836,111 @@ def main(page: ft.Page) -> None:
             margin=ft.Margin(bottom=8)
         )
 
-    def delete_periodic_event_series(original_date: str, title: str, period_info: Dict) -> None:
-        """删除整个周期性事件系列：温柔地清理所有相关事件"""
-        dates_to_check = list(events_data.keys())
-        for date_key in dates_to_check:
-            events_list = events_data[date_key]
-            for i in range(len(events_list) - 1, -1, -1):
-                event = events_list[i]
-                if (event.get("is_periodic", False) and
-                        event.get("original_date") == original_date and
-                        event.get("title") == title and
-                        event.get("period_info") == period_info):
-                    events_list.pop(i)
 
-            if not events_list:
-                del events_data[date_key]
-
-        save_events()
 
     def delete_event(event_index: int) -> None:
-        """删除事件：为周期性事件提供智能选择"""
-        if selected_day:
-            date_key = get_date_key(selected_year, selected_month, selected_day)
-            if date_key in events_data and event_index < len(events_data[date_key]):
-                event_to_delete = events_data[date_key][event_index]
+        """
+        删除事件（已重构）：智能处理普通和周期性事件。
+        """
+        if not selected_day:
+            return
 
-                if event_to_delete.get("is_periodic", False):
-                    def delete_single():
-                        events_data[date_key].pop(event_index)
-                        if not events_data[date_key]:
-                            del events_data[date_key]
-                        save_events()
-                        update_calendar()
-                        update_event_panel()
-                        page.pop_dialog()
+        # 1. 获取当天显示的完整事件列表（包括普通和周期性）
+        all_events_for_day = get_events_for_date(selected_year, selected_month, selected_day)
 
-                    def delete_all_series():
-                        original_date = event_to_delete.get("original_date", "")
-                        title = event_to_delete.get("title", "")
-                        period = event_to_delete.get("period_info", {})
+        # 检查索引是否有效
+        if event_index >= len(all_events_for_day):
+            print("Error: Event index out of range.")
+            return
 
-                        delete_periodic_event_series(original_date, title, period)
+        # 2. 准确定位到要删除的事件对象
+        event_to_delete = all_events_for_day[event_index]
+        date_key = get_date_key(selected_year, selected_month, selected_day)
 
-                        update_calendar()
-                        update_event_panel()
-                        page.pop_dialog()
+        # 3. 判断事件类型并执行相应逻辑
+        is_periodic = event_to_delete.get("is_periodic", False)
 
-                    def cancel_delete():
-                        page.pop_dialog()
+        if is_periodic:
+            # --- 处理周期性事件 ---
 
-                    # 获取周期描述文本
-                    period_info = event_to_delete.get("period_info", {})
-                    period_type = period_info.get("type", "")
-                    period_desc = period_type
+            # 找到原始规则，因为 event_to_delete 就是从 periodic_events_rules 来的引用
+            original_rule = None
+            for rule in periodic_events_rules:
+                # 通过创建时间和标题来唯一识别规则
+                if (rule.get("created_at") == event_to_delete.get("created_at") and
+                        rule.get("title") == event_to_delete.get("title")):
+                    original_rule = rule
+                    break
 
-                    if period_type == "自定义周期":
-                        interval = period_info.get("interval", 1)
-                        unit = period_info.get("unit", "")
-                        period_desc = f"每{interval}{unit}"
-                    elif period_type == "自定义日期":
-                        period_desc = "自定义日期"
+            if not original_rule:
+                print("Error: Could not find the original periodic rule to delete.")
+                return
 
-                    confirm_dialog = ft.AlertDialog(
-                        title=ft.Text(
-                            "删除周期性事件",
-                            color=colors["text_primary"],
-                            weight=ft.FontWeight.BOLD
-                        ),
-                        content=ft.Container(
-                            content=ft.Column(
-                                controls=[
-                                    ft.Text(
-                                        f"「{event_to_delete['title']}」是一个周期性事件",
-                                        color=colors["text_primary"],
-                                        weight=ft.FontWeight.W_500
-                                    ),
-                                    ft.Text(
-                                        f"重复周期：{period_desc}",
-                                        color=colors["text_secondary"],
-                                        size=12
-                                    ),
-                                    ft.Container(height=10),
-                                    ft.Text(
-                                        "请选择删除方式：",
-                                        color=colors["text_secondary"]
-                                    )
-                                ],
-                                spacing=5,
-                                tight=True
-                            ),
-                            width=350
-                        ),
-                        actions=[
-                            ft.TextButton(
-                                "取消",
-                                on_click=cancel_delete,
-                                style=ft.ButtonStyle(
-                                    color=colors["text_secondary"],
-                                    overlay_color=ft.Colors.with_opacity(0.1, colors["text_secondary"])
-                                )
-                            ),
-                            ft.ElevatedButton(
-                                "仅删除今日",
-                                on_click=delete_single,
-                                style=ft.ButtonStyle(
-                                    bgcolor=colors["warning"],
-                                    color="white",
-                                    elevation=2
-                                )
-                            ),
-                            ft.ElevatedButton(
-                                "删除所有",
-                                on_click=delete_all_series,
-                                style=ft.ButtonStyle(
-                                    bgcolor=colors["today"],
-                                    color="white",
-                                    elevation=2
-                                )
-                            )
-                        ],
-                        actions_alignment=ft.MainAxisAlignment.SPACE_BETWEEN
-                    )
+            def delete_single_occurrence():
+                """仅删除今日：通过添加排除日期实现"""
+                if "excluded_dates" not in original_rule:
+                    original_rule["excluded_dates"] = []
 
-                    page.show_dialog(confirm_dialog)
+                # 避免重复添加
+                if date_key not in original_rule["excluded_dates"]:
+                    original_rule["excluded_dates"].append(date_key)
 
-                else:
-                    def confirm_delete():
-                        events_data[date_key].pop(event_index)
-                        if not events_data[date_key]:
-                            del events_data[date_key]
-                        save_events()
-                        update_calendar()
-                        update_event_panel()
-                        page.pop_dialog()
+                save_events()
+                update_calendar()
+                update_event_panel()
+                page.pop_dialog()
 
-                    def cancel_delete():
-                        page.pop_dialog()
+            def delete_entire_series():
+                """删除整个系列：从规则列表中移除"""
+                periodic_events_rules.remove(original_rule)
+                save_events()
+                update_calendar()
+                update_event_panel()
+                page.pop_dialog()
 
-                    confirm_dialog = ft.AlertDialog(
-                        title=ft.Text(
-                            "确认删除",
-                            color=colors["text_primary"],
-                            weight=ft.FontWeight.BOLD
-                        ),
-                        content=ft.Text(
-                            f"确定要删除事件「{event_to_delete['title']}」吗？",
-                            color=colors["text_secondary"]
-                        ),
-                        actions=[
-                            ft.TextButton(
-                                "取消",
-                                on_click=cancel_delete,
-                                style=ft.ButtonStyle(
-                                    color=colors["text_secondary"],
-                                    overlay_color=ft.Colors.with_opacity(0.1, colors["text_secondary"])
-                                )
-                            ),
-                            ft.ElevatedButton(
-                                "删除",
-                                on_click=confirm_delete,
-                                style=ft.ButtonStyle(
-                                    bgcolor=colors["today"],
-                                    color="white",
-                                    elevation=2
-                                )
-                            )
-                        ],
-                        actions_alignment=ft.MainAxisAlignment.SPACE_BETWEEN
-                    )
+            def cancel_delete():
+                page.pop_dialog()
 
-                    page.show_dialog(confirm_dialog)
+            confirm_dialog = ft.AlertDialog(
+                title=ft.Text("删除周期性事件", color=colors["text_primary"], weight=ft.FontWeight.BOLD),
+                content=ft.Text(f"您想如何删除周期性事件「{event_to_delete['title']}」？"),
+                actions=[
+                    ft.TextButton("取消", on_click=cancel_delete),
+                    ft.ElevatedButton("仅删除今天", on_click=delete_single_occurrence,
+                                      style=ft.ButtonStyle(bgcolor=colors["warning"], color="white")),
+                    ft.ElevatedButton("删除整个系列", on_click=delete_entire_series,
+                                      style=ft.ButtonStyle(bgcolor=colors["today"], color="white"))
+                ],
+                actions_alignment=ft.MainAxisAlignment.SPACE_BETWEEN
+            )
+            page.show_dialog(confirm_dialog)
+
+        else:
+            # --- 处理普通事件 ---
+            def confirm_delete():
+                if date_key in events_data and event_to_delete in events_data[date_key]:
+                    events_data[date_key].remove(event_to_delete)
+                    if not events_data[date_key]:
+                        del events_data[date_key]
+                    save_events()
+                    update_calendar()
+                    update_event_panel()
+                page.pop_dialog()
+
+            def cancel_delete():
+                page.pop_dialog()
+
+            confirm_dialog = ft.AlertDialog(
+                title=ft.Text("确认删除", color=colors["text_primary"], weight=ft.FontWeight.BOLD),
+                content=ft.Text(f"确定要删除事件「{event_to_delete['title']}」吗？"),
+                actions=[
+                    ft.TextButton("取消", on_click=cancel_delete),
+                    ft.ElevatedButton("删除", on_click=confirm_delete,
+                                      style=ft.ButtonStyle(bgcolor=colors["today"], color="white"))
+                ],
+                actions_alignment=ft.MainAxisAlignment.SPACE_BETWEEN
+            )
+            page.show_dialog(confirm_dialog)
 
     def show_custom_dates_selector(callback_func) -> None:
         """显示自定义日期选择器：让用户优雅地选择多个特定日期"""
@@ -1862,4 +1858,4 @@ def main(page: ft.Page) -> None:
 
 # 启动应用
 if __name__ == "__main__":
-    ft.run(main)
+    ft.app(main)
