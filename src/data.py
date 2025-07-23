@@ -36,18 +36,20 @@ class CalendarData:
     events: List[Event]
 
     def __init__(
-        self,
-        year,
-        month,
-        events,
-        lunar,
-        week_day,
+        self = None,
+        year = None,
+        month = None,
+        day = None,
+        events = None,
+        lunar= None,
+        week_day = None,
         adjusted_workday=False,
         festival=None,
         solar_terms=None,
     ):
         self.year = year
         self.month = month
+        self.day = day
         self.events = events
         self.lunar = lunar  # 本地永久化
         self.week_day = week_day
