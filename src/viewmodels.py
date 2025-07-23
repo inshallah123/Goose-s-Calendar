@@ -1,17 +1,13 @@
 
 from typing import Callable, Optional
 
-class PageViewModel:
+class PageViewModel: # 定义页面的viewmodel
     def __init__(self):
         self._width: Optional[int] = None
         self._height: Optional[int] = None
         self._title: str = "日历应用"
         self._bgcolor: str = "#ffffff"
         self._auto_resize: bool = True
-        self._zoom_factor: float = 1.0
-        self._min_zoom: float = 0.5
-        self._max_zoom: float = 3.0
-        self._zoom_step: float = 0.1
         self._on_property_changed: Optional[Callable] = None
     
     @property
@@ -63,18 +59,6 @@ class PageViewModel:
         if self._auto_resize != value:
             self._auto_resize = value
             self._notify_change()
-    
-    @property
-    def zoom_factor(self) -> float:
-        return self._zoom_factor
-
-    @property
-    def min_zoom(self) -> float:
-        return self._min_zoom
-    
-    @property
-    def max_zoom(self) -> float:
-        return self._max_zoom
     
     def set_property_changed_callback(self, callback: Callable):
         self._on_property_changed = callback
